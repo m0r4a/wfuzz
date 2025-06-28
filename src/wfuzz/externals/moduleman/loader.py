@@ -1,6 +1,6 @@
 import inspect
 import logging
-import imp
+import importlib.util
 import os.path
 
 
@@ -50,39 +50,53 @@ class FileLoader(IModuleLoader):
         """
         Opens "filename", inspects it and calls the registrant
         """
-        self.__logger.debug("__load_py_from_file. START, file=%s" % (filename,))
+        self.__logger.debug(
+            "__load_py_from_file. START, file=%s" % (filename,))
 
-        dirname, filename = os.path.split(filename)
-        fn = os.path.splitext(filename)[0]
-        exten_file = None
+        dirname, file_basename = os.path.split(filename)
+        module_name = os.path.splitext(file_basename)[0]
         module = None
 
         try:
-            exten_file, filename, description = imp.find_module(fn, [dirname])
-            module = imp.load_module(fn, exten_file, filename, description)
+            # Use importlib instead of imp
+            spec = importlib.util.spec_from_file_location(
+                module_name, filename)
+            if spec is None:
+                raise ImportError(f"Could not load spec from {filename}")
+
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
         except ImportError as msg:
             self.__logger.critical(
-                "__load_py_from_file. Filename: %s Exception, msg=%s" % (filename, msg)
+                "__load_py_from_file. Filename: %s Exception, msg=%s" % (
+                    filename, msg)
             )
             # raise msg
             pass
         except SyntaxError as msg:
             # incorrect python syntax in file
             self.__logger.critical(
-                "__load_py_from_file. Filename: %s Exception, msg=%s" % (filename, msg)
+                "__load_py_from_file. Filename: %s Exception, msg=%s" % (
+                    filename, msg)
             )
             # raise msg
             pass
-        finally:
-            if exten_file:
-                exten_file.close()
+        except Exception as msg:
+            # Catch any other exeption during the module load
+            self.__logger.critical(
+                "__load_py_from_file. Filename: %s Exception, msg=%s" % (
+                    filename, msg)
+            )
+            pass
 
         if module is None:
             return
 
         for objname in dir(module):
             obj = getattr(module, objname)
-            self.__logger.debug("__load_py_from_file. inspecting=%s" % (objname,))
+            self.__logger.debug(
+                "__load_py_from_file. inspecting=%s" % (objname,))
             if inspect.isclass(obj):
                 if "__PLUGIN_MODULEMAN_MARK" in dir(obj):
                     if self.module_registrant:
@@ -90,7 +104,8 @@ class FileLoader(IModuleLoader):
                             self._build_id(filename, objname), obj
                         )
 
-        self.__logger.debug("__load_py_from_file. END, loaded file=%s" % (filename,))
+        self.__logger.debug(
+            "__load_py_from_file. END, loaded file=%s" % (filename,))
 
 
 class DirLoader(FileLoader):

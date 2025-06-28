@@ -1,5 +1,35 @@
 import re
-import cgi
+try:
+    from email.message import EmailMessage
+
+    def parse_header(value):
+        """Parse header value using email.message for Python 3.13+"""
+        msg = EmailMessage()
+        msg['content-type'] = value
+        content_type = msg.get_content_type()
+        params = msg.get_params() or []
+        param_dict = {}
+        for param in params[1:]:  # Skip first param which is the content type
+            if len(param) == 2:
+                param_dict[param[0]] = param[1]
+        return content_type, param_dict
+except ImportError:
+    try:
+        import cgi
+        parse_header = cgi.parse_header
+    except ImportError:
+        def parse_header(value):
+            """Manual implementation of parse_header"""
+            parts = value.split(';')
+            main_type = parts[0].strip()
+            params = {}
+            for p in parts[1:]:
+                if '=' in p:
+                    key, val = p.split('=', 1)
+                    key = key.strip().lower()
+                    val = val.strip().strip('"\'')
+                    params[key] = val
+            return main_type, params
 
 from io import BytesIO
 import gzip
@@ -22,7 +52,7 @@ def get_encoding_from_headers(headers):
     if not content_type:
         return None
 
-    content_type, params = cgi.parse_header(content_type)
+    content_type, params = parse_header(content_type)
 
     if "charset" in params:
         return params["charset"].strip("'\"")
@@ -43,7 +73,8 @@ def get_encodings_from_content(content):
     :param content: bytestring to extract encodings from.
     """
     charset_re = re.compile(r'<meta.*?charset=["\']*(.+?)["\'>]', flags=re.I)
-    pragma_re = re.compile(r'<meta.*?content=["\']*;?charset=(.+?)["\'>]', flags=re.I)
+    pragma_re = re.compile(
+        r'<meta.*?content=["\']*;?charset=(.+?)["\'>]', flags=re.I)
     xml_re = re.compile(r'^<\?xml.*?encoding=["\']*(.+?)["\'>]')
 
     return (
@@ -58,12 +89,12 @@ class Response:
         self.protocol = protocol  # HTTP/1.1
         self.code = code  # 200
         self.message = message  # OK
-        self._headers = []  # bueno pues las cabeceras igual que en la request
+        self._headers = []  # The headers, theres not much to it
         self.__content = (
-            ""  # contenido de la response (si i solo si Content-Length existe)
+            ""  # response content
         )
-        self.md5 = ""  # hash de los contenidos del resultado
-        self.charlen = ""  # Cantidad de caracteres de la respuesta
+        self.md5 = ""  # hash of the result content
+        self.charlen = ""  # Amount of chars in the response
 
     def addHeader(self, key, value):
         self._headers += [(key, value)]
@@ -115,7 +146,8 @@ class Response:
 
     def getTextHeaders(self):
         string = (
-            str(self.protocol) + " " + str(self.code) + " " + str(self.message) + "\r\n"
+            str(self.protocol) + " " + str(self.code) +
+            " " + str(self.message) + "\r\n"
         )
         for i, j in self._headers:
             string += i + ": " + j + "\r\n"
@@ -133,7 +165,8 @@ class Response:
 
     def getAll_wpost(self):
         string = (
-            str(self.protocol) + " " + str(self.code) + " " + str(self.message) + "\r\n"
+            str(self.protocol) + " " + str(self.code) +
+            " " + str(self.message) + "\r\n"
         )
         for i, j in self._headers:
             string += i + ": " + j + "\r\n"
@@ -232,7 +265,8 @@ class Response:
 
         if rawbody is not None:
             # Try to get charset encoding from headers
-            content_encoding = get_encoding_from_headers(dict(self.getHeaders()))
+            content_encoding = get_encoding_from_headers(
+                dict(self.getHeaders()))
 
             # fallback to default encoding
             if content_encoding is None:
